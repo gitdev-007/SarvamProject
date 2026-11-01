@@ -1,34 +1,49 @@
 import os
-from pathlib import Path
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from app.database import Base, SessionLocal, engine
+from app.routers import (
+    company,
+    documents,
+    proposal,
+    requirements,
+    risks,
+    tenders,
+    voice,
+)
+from app.seed_data import seed_database
+from app.services.sarvam_service import is_sarvam_configured
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from sarvamai import SarvamAI
 
-# Try loading .env from current directory or parent directory
-for env_candidate in [
-    Path(".env"),
-    Path(__file__).parent / ".env",
-    Path(__file__).parent.parent / ".env",
-]:
-    if env_candidate.is_file():
-        with open(env_candidate, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    k, v = line.split("=", 1)
-                    k, v = k.strip(), v.strip().strip("'\"")
-                    if k and k not in os.environ:
-                        os.environ[k] = v
+
+def initialize_db():
+    Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    try:
+        seed_database(db)
+    finally:
+        db.close()
+
+
+# Ensure tables and seed exist on import
+initialize_db()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    initialize_db()
+    yield
+
 
 app = FastAPI(
-    title="Sarvam AI Backend",
-    description="Backend API powered by Sarvam AI for chat and Indic language generation",
+    title="TenderGuard API",
+    description="AI-powered tender intelligence, compliance, and bid-readiness platform powered by Sarvam AI",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
-# Enable CORS for frontend deployment (Vercel, localhost, etc.)
+# CORS Middleware for Vercel and local development
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -37,77 +52,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-def get_sarvam_client() -> SarvamAI:
-    api_key = os.environ.get("SARVAM_API_KEY")
-    if not api_key:
-        raise HTTPException(
-            status_code=500,
-            detail="SARVAM_API_KEY is not configured in the environment.",
-        )
-    return SarvamAI(api_subscription_key=api_key)
-
-
-class ChatMessage(BaseModel):
-    role: str
-    content: str
-
-
-class ChatRequest(BaseModel):
-    message: str
-    history: list[ChatMessage] | None = None
-    model: str | None = "sarvam-105b-conversations"
-
-
-class ChatResponse(BaseModel):
-    reply: str
-    model: str
+# Mount Routers
+app.include_router(tenders.router)
+app.include_router(documents.router)
+app.include_router(requirements.router)
+app.include_router(company.router)
+app.include_router(risks.router)
+app.include_router(proposal.router)
+app.include_router(voice.router)
 
 
 @app.get("/")
 def read_root():
     return {
+        "product": "TenderGuard",
+        "tagline": "Understand the tender. Verify your evidence. Find the gaps before submission.",
         "status": "online",
-        "service": "Sarvam AI Backend",
-        "endpoints": {
-            "health": "/api/health",
-            "chat": "/api/chat",
-            "docs": "/docs",
-        },
+        "sarvam_configured": is_sarvam_configured(),
+        "docs_url": "/docs",
     }
 
 
 @app.get("/api/health")
 def health_check():
-    has_key = bool(os.environ.get("SARVAM_API_KEY"))
     return {
         "status": "healthy",
-        "sarvam_configured": has_key,
+        "sarvam_configured": is_sarvam_configured(),
+        "database": "sqlite/tenderguard.db (active)",
     }
-
-
-@app.post("/api/chat", response_model=ChatResponse)
-def chat_completion(request: ChatRequest):
-    client = get_sarvam_client()
-    messages = []
-
-    # Include prior history if provided
-    if request.history:
-        for msg in request.history:
-            messages.append({"role": msg.role, "content": msg.content})
-
-    # Append current message
-    messages.append({"role": "user", "content": request.message})
-
-    try:
-        response = client.chat.completions(
-            model=request.model or "sarvam-105b-conversations",
-            messages=messages,
-        )
-        reply = response.choices[0].message.content
-        return ChatResponse(reply=reply, model=request.model or "sarvam-105b-conversations")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 if __name__ == "__main__":
