@@ -21,3 +21,4 @@ build/
 
 # Editor
 .vscode/
+.neon

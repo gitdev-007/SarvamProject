@@ -195,3 +195,4 @@ class DashboardStats(BaseModel):
     critical_risks_count: int
     compliance_rate: float
     sarvam_configured: bool
+

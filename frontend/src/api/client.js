@@ -67,3 +67,4 @@ export const api = {
   // Voice & Q&A
   askVoiceQuery: (data) => fetchJson('/api/voice/ask', { method: 'POST', body: JSON.stringify(data) }),
 };
+
