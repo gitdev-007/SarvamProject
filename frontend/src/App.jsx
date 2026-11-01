@@ -20,6 +20,7 @@ export default function App() {
   const [company, setCompany] = useState(null);
   const [evidenceVault, setEvidenceVault] = useState([]);
   const [documents, setDocuments] = useState([]);
+  const [health, setHealth] = useState(null);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [complianceFilter, setComplianceFilter] = useState('All');
@@ -47,17 +48,19 @@ export default function App() {
   const loadAllData = async () => {
     try {
       setLoading(true);
-      const [tendersData, statsData, companyData, vaultData] = await Promise.all([
+      const [tendersData, statsData, companyData, vaultData, healthData] = await Promise.all([
         api.getTenders().catch(() => []),
         api.getDashboardStats().catch(() => null),
         api.getCompany().catch(() => null),
         api.getEvidenceVault().catch(() => []),
+        api.getHealth().catch(() => null),
       ]);
 
       setTenders(tendersData);
       setStats(statsData);
       setCompany(companyData);
       setEvidenceVault(vaultData);
+      setHealth(healthData);
 
       const tId = selectedTenderId || (tendersData[0]?.id) || 1;
       setSelectedTenderId(tId);
@@ -152,6 +155,90 @@ export default function App() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleDownloadDocument = async (docId) => {
+    try {
+      const res = await api.getDocumentDownloadUrl(docId);
+      if (res.download_url) {
+        window.open(res.download_url, '_blank');
+      }
+    } catch (err) {
+      alert('Download error: ' + err.message);
+    }
+  };
+
+  const handleUploadDocument = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('document_type', 'RFP');
+    try {
+      setLoading(true);
+      await api.uploadDocument(selectedTenderId, formData);
+      await loadAllData();
+      alert(`Uploaded ${file.name} to Neon Object Storage successfully.`);
+    } catch (err) {
+      alert('Upload failed: ' + err.message);
+    } finally {
+      setLoading(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleDeleteDocument = async (docId) => {
+    if (!window.confirm('Delete this tender document from storage?')) return;
+    try {
+      await api.deleteDocument(docId);
+      await loadAllData();
+    } catch (err) {
+      alert('Delete failed: ' + err.message);
+    }
+  };
+
+  const handleDownloadEvidence = async (evId) => {
+    try {
+      const res = await api.getEvidenceDownloadUrl(evId);
+      if (res.download_url) {
+        window.open(res.download_url, '_blank');
+      }
+    } catch (err) {
+      alert('Download error: ' + err.message);
+    }
+  };
+
+  const handleUploadEvidence = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const title = window.prompt('Enter Evidence Title:', file.name);
+    if (!title) return;
+    const category = window.prompt('Enter Category (Financial, Past Experience, Certificate, Registration):', 'Certificate') || 'Certificate';
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('title', title);
+    formData.append('category', category);
+    try {
+      setLoading(true);
+      await api.uploadEvidence(formData);
+      await loadAllData();
+      alert(`Uploaded ${file.name} to Neon Evidence Vault.`);
+    } catch (err) {
+      alert('Upload failed: ' + err.message);
+    } finally {
+      setLoading(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleDeleteEvidence = async (evId) => {
+    if (!window.confirm('Delete this evidence document?')) return;
+    try {
+      await api.deleteEvidence(evId);
+      await loadAllData();
+    } catch (err) {
+      alert('Delete failed: ' + err.message);
+    }
   };
 
   const filteredCompliance = compliance.filter(item => {
@@ -833,19 +920,43 @@ export default function App() {
                 </div>
 
                 <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '10px', border: '1px solid var(--border)' }}>
-                  <h4 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '16px' }}>Evidence Documents Vault ({evidenceVault.length})</h4>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <h4 style={{ fontSize: '15px', fontWeight: 600 }}>Evidence Documents Vault ({evidenceVault.length})</h4>
+                    <label style={{ background: '#2563eb', color: '#ffffff', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Plus size={14} /> Upload Evidence
+                      <input type="file" onChange={handleUploadEvidence} style={{ display: 'none' }} />
+                    </label>
+                  </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     {evidenceVault.map(ev => (
                       <div key={ev.id} style={{ background: '#1e293b', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
                           <div style={{ fontSize: '13px', fontWeight: 600, color: '#f8fafc' }}>{ev.title}</div>
                           <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
-                            Issuer: {ev.issuer} {ev.expiry_date && `• Expiry: ${ev.expiry_date}`}
+                            {ev.category} • Issuer: {ev.issuer || 'Self'} {ev.expiry_date && `• Expiry: ${ev.expiry_date}`}
                           </div>
                         </div>
-                        <span className={`badge ${ev.verification_status === 'Verified' ? 'badge-satisfied' : 'badge-critical'}`}>
-                          {ev.verification_status}
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span className={`badge ${ev.verification_status === 'Verified' ? 'badge-satisfied' : 'badge-critical'}`}>
+                            {ev.verification_status}
+                          </span>
+                          {ev.file_path && (
+                            <button
+                              onClick={() => handleDownloadEvidence(ev.id)}
+                              title="Download from Neon Object Storage"
+                              style={{ background: '#334155', color: '#38bdf8', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer' }}
+                            >
+                              <Download size={14} />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleDeleteEvidence(ev.id)}
+                            title="Delete evidence"
+                            style={{ background: '#334155', color: '#ef4444', border: 'none', padding: '6px', borderRadius: '4px', cursor: 'pointer' }}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -908,11 +1019,17 @@ export default function App() {
           {/* 9. TENDER DOCUMENTS TAB */}
           {activeTab === 'documents' && (
             <div>
-              <div style={{ marginBottom: '20px' }}>
-                <h2 style={{ fontSize: '20px', fontWeight: 700 }}>Tender Documents & Corrigenda</h2>
-                <p style={{ fontSize: '13px', color: '#94a3b8', marginTop: '2px' }}>
-                  Uploaded tender notices, RFPs, technical specifications, and corrigendum files.
-                </p>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <div>
+                  <h2 style={{ fontSize: '20px', fontWeight: 700 }}>Tender Documents & Corrigenda</h2>
+                  <p style={{ fontSize: '13px', color: '#94a3b8', marginTop: '2px' }}>
+                    Uploaded tender notices, RFPs, technical specifications, and corrigendum files stored privately in Neon Object Storage.
+                  </p>
+                </div>
+                <label style={{ background: '#2563eb', color: '#ffffff', padding: '8px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Plus size={14} /> Upload Document to Neon
+                  <input type="file" onChange={handleUploadDocument} style={{ display: 'none' }} />
+                </label>
               </div>
 
               <div className="table-container">
@@ -924,6 +1041,7 @@ export default function App() {
                       <th>File Size</th>
                       <th>Pages</th>
                       <th>Status</th>
+                      <th>Storage & Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -934,6 +1052,24 @@ export default function App() {
                         <td>{(d.file_size / 1024 / 1024).toFixed(2)} MB</td>
                         <td>{d.page_count} pages</td>
                         <td><span className="badge badge-satisfied">{d.processing_status}</span></td>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                              onClick={() => handleDownloadDocument(d.id)}
+                              title="Download via presigned URL from Neon Object Storage"
+                              style={{ background: '#334155', color: '#38bdf8', border: 'none', padding: '6px 10px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}
+                            >
+                              <Download size={12} /> Download
+                            </button>
+                            <button
+                              onClick={() => handleDeleteDocument(d.id)}
+                              title="Delete document"
+                              style={{ background: '#334155', color: '#ef4444', border: 'none', padding: '6px 10px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}
+                            >
+                              <Trash2 size={12} /> Delete
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -986,12 +1122,12 @@ export default function App() {
               </div>
 
               <div style={{ background: 'var(--bg-card)', padding: '20px', borderRadius: '10px', border: '1px solid var(--border)' }}>
-                <h4 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '14px' }}>AI Integration Health</h4>
+                <h4 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '14px' }}>System Architecture & Integration Health</h4>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: '#94a3b8' }}>Sarvam API Key Status</span>
+                    <span style={{ color: '#94a3b8' }}>Sarvam AI Status</span>
                     <span style={{ color: stats?.sarvam_configured ? '#10b981' : '#f97316', fontWeight: 600 }}>
-                      {stats?.sarvam_configured ? 'Configured & Active' : 'Key Present in Backend'}
+                      {stats?.sarvam_configured ? 'Configured & Active' : 'API Key Present in Backend'}
                     </span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -999,8 +1135,22 @@ export default function App() {
                     <span style={{ color: '#38bdf8', fontWeight: 600 }}>sarvam-105b-conversations</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: '#94a3b8' }}>Backend Database</span>
-                    <span style={{ color: '#f8fafc', fontWeight: 600 }}>SQLite (tenderguard.db)</span>
+                    <span style={{ color: '#94a3b8' }}>Database Engine</span>
+                    <span style={{ color: '#10b981', fontWeight: 600 }}>
+                      {health?.database || 'Neon PostgreSQL (active)'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#94a3b8' }}>Object Storage</span>
+                    <span style={{ color: '#10b981', fontWeight: 600 }}>
+                      {health?.object_storage || 'Neon Object Storage (active)'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#94a3b8' }}>Storage Bucket</span>
+                    <span style={{ color: '#38bdf8', fontWeight: 600 }}>
+                      {health?.storage_bucket || 'tenderguard-documents'} (Private)
+                    </span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span style={{ color: '#94a3b8' }}>PRD Golden Evaluation Dataset</span>

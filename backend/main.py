@@ -1,7 +1,8 @@
 import os
 from contextlib import asynccontextmanager
 
-from app.database import Base, SessionLocal, engine
+from app.config import NEON_STORAGE_BUCKET
+from app.database import Base, SessionLocal, app_db_url, engine
 from app.routers import (
     company,
     documents,
@@ -13,6 +14,7 @@ from app.routers import (
 )
 from app.seed_data import seed_database
 from app.services.sarvam_service import is_sarvam_configured
+from app.services.storage_service import is_storage_configured
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -38,7 +40,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="TenderGuard API",
-    description="AI-powered tender intelligence, compliance, and bid-readiness platform powered by Sarvam AI",
+    description="AI-powered tender intelligence, compliance, and bid-readiness platform powered by Sarvam AI and Neon",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -69,6 +71,8 @@ def read_root():
         "tagline": "Understand the tender. Verify your evidence. Find the gaps before submission.",
         "status": "online",
         "sarvam_configured": is_sarvam_configured(),
+        "database": "Neon PostgreSQL" if "postgres" in app_db_url else "SQLite",
+        "object_storage": "Neon Object Storage" if is_storage_configured() else "Local",
         "docs_url": "/docs",
     }
 
@@ -78,7 +82,9 @@ def health_check():
     return {
         "status": "healthy",
         "sarvam_configured": is_sarvam_configured(),
-        "database": "sqlite/tenderguard.db (active)",
+        "database": "Neon PostgreSQL (active)" if "postgres" in app_db_url else "SQLite (active)",
+        "object_storage": "Neon Object Storage (active)" if is_storage_configured() else "Local (active)",
+        "storage_bucket": NEON_STORAGE_BUCKET if is_storage_configured() else None,
     }
 
 

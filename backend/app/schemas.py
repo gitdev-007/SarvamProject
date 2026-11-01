@@ -31,6 +31,7 @@ class DocumentOut(BaseModel):
     tender_id: int | None
     document_type: str
     original_filename: str
+    file_path: str | None = None
     file_size: int
     page_count: int
     processing_status: str
@@ -168,11 +169,19 @@ class EvidenceOut(BaseModel):
     issue_date: str | None = None
     expiry_date: str | None = None
     document_number: str | None = None
+    file_path: str | None = None
     verification_status: str
     claims_summary: str | None = None
 
     class Config:
         from_attributes = True
+
+
+class PresignedUrlResponse(BaseModel):
+    download_url: str
+    filename: str
+    expires_in: int
+    storage_key: str | None = None
 
 
 class VoiceQueryRequest(BaseModel):

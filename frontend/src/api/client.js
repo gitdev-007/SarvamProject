@@ -28,6 +28,7 @@ export const api = {
 
   // Documents
   getTenderDocuments: (tenderId) => fetchJson(`/api/tenders/${tenderId}/documents`),
+  getDocumentDownloadUrl: (id) => fetchJson(`/api/documents/${id}/download`),
   uploadDocument: async (tenderId, formData) => {
     const res = await fetch(`${API_BASE}/api/tenders/${tenderId}/documents`, {
       method: 'POST',
@@ -58,6 +59,15 @@ export const api = {
   getCompany: () => fetchJson('/api/company'),
   updateCompany: (data) => fetchJson('/api/company', { method: 'PUT', body: JSON.stringify(data) }),
   getEvidenceVault: () => fetchJson('/api/company/evidence'),
+  getEvidenceDownloadUrl: (id) => fetchJson(`/api/company/evidence/${id}/download`),
+  uploadEvidence: async (formData) => {
+    const res = await fetch(`${API_BASE}/api/company/evidence/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!res.ok) throw new Error('Evidence upload failed');
+    return res.json();
+  },
   addEvidence: (params) => {
     const query = new URLSearchParams(params).toString();
     return fetchJson(`/api/company/evidence?${query}`, { method: 'POST' });
